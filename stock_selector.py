@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import re
 from typing import Dict, List, Optional, Set, Tuple
@@ -196,6 +197,34 @@ def select_stocks(
         return result
     result = result.sort_values(by=["综合评分", "技术评分", "成交额"], ascending=False)
     return result.head(top_n).reset_index(drop=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="选择符合技术与热度的 A 股股票排名"
+    )
+    parser.add_argument("--top-n", type=int, default=30, help="输出的最终股票数量")
+    parser.add_argument("--universe-n", type=int, default=200, help="从前多少名成交额股票中选股")
+    parser.add_argument(
+        "--no-fa-filter",
+        action="store_true",
+        help="禁用成交额筛选，返回更大候选池",
+    )
+    args = parser.parse_args()
+
+    result = select_stocks(
+        top_n=args.top_n,
+        universe_n=args.universe_n,
+        fa_filter=not args.no_fa_filter,
+    )
+    if result.empty:
+        print("未选出符合条件的股票。")
+    else:
+        print(result.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
 
 
 def main() -> None:
