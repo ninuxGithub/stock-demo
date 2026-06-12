@@ -1,6 +1,9 @@
 import argparse
 import datetime
+import os
 import re
+import shutil
+import subprocess
 from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
@@ -46,6 +49,29 @@ def to_float(value: object, default: float = 0.0) -> float:
         except ValueError:
             return default
     return default
+
+
+def write_html_report(df: pd.DataFrame, file_path: str) -> None:
+    os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+    df.to_html(file_path, index=False, float_format="%.2f", escape=False)
+
+
+def publish_html_gist(file_path: str) -> Optional[str]:
+    if shutil.which("gh") is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["gh", "gist", "create", file_path, "--public", "--filename", os.path.basename(file_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        output = result.stdout.strip().splitlines()
+        if output:
+            return output[-1].strip()
+    except subprocess.CalledProcessError:
+        pass
+    return None
 
 
 def fetch_a_share_spot() -> pd.DataFrame:
@@ -281,6 +307,17 @@ def main() -> None:
         action="store_true",
         help="禁用成交额筛选，返回更大候选池",
     )
+    parser.add_argument(
+        "--output-html",
+        type=str,
+        default="",
+        help="将结果导出为 HTML 文件",
+    )
+    parser.add_argument(
+        "--publish-gist",
+        action="store_true",
+        help="将 HTML 报告发布为 GitHub Gist，并打印访问链接",
+    )
     args = parser.parse_args()
 
     result = select_stocks(
@@ -290,8 +327,32 @@ def main() -> None:
     )
     if result.empty:
         print("未选出符合条件的股票。")
-    else:
-        print(result.to_string(index=False))
+        return
+
+    summary_columns = [
+        "代码",
+        "名称",
+        "最新价",
+        "涨跌幅",
+        "成交额",
+        "热度",
+        "技术评分",
+        "消息评分",
+        "综合评分",
+        "趋势判断",
+        "趋势标签",
+    ]
+    print(result[summary_columns].to_string(index=False, float_format="%.2f"))
+
+    if args.output_html:
+        write_html_report(result, args.output_html)
+        print(f"已导出 HTML 报告: {args.output_html}")
+        if args.publish_gist:
+            gist_url = publish_html_gist(args.output_html)
+            if gist_url:
+                print(f"Gist 访问链接: {gist_url}")
+            else:
+                print("无法发布 Gist，请检查 GitHub CLI 是否可用并已登录。")
 
 
 if __name__ == "__main__":
