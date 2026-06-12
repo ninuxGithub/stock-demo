@@ -103,29 +103,41 @@ def calculate_kline_trend(symbol: str, lookback_days: int = 60) -> Optional[Dict
     df["ma60"] = df["close"].rolling(60).mean()
     current = df.iloc[-1]
     prior = df.iloc[-2]
-    score = 0.0
     strong_trend = current["close"] > current["ma5"] > current["ma10"] > current["ma20"]
     follow_trend = current["close"] > current["ma10"] > current["ma20"]
-    score += 0.35 if strong_trend else 0.15 if follow_trend else 0.0
-    score += 0.15 if current["close"] > current["ma20"] else 0.0
+    above_ma20 = current["close"] > current["ma20"]
     recent_gain = (current["close"] / df.iloc[-6]["close"] - 1) if len(df) >= 6 else 0.0
-    score += min(max(recent_gain / 0.1, 0.0), 1.0) * 0.2
     avg_vol_5 = df["volume"].rolling(5).mean().iloc[-1]
-    if avg_vol_5 > 0:
-        score += min(max(current["volume"] / avg_vol_5 - 1.0, 0.0), 1.0) * 0.15
+    volume_ratio = float(current["volume"] / avg_vol_5) if avg_vol_5 > 0 else 0.0
     strong_bull = current["close"] > current["open"] and current["close"] > prior["close"]
-    score += 0.1 if strong_bull else 0.0
+
+    strong_trend_score = 0.35 if strong_trend else 0.0
+    follow_trend_score = 0.15 if not strong_trend and follow_trend else 0.0
+    above_ma20_score = 0.15 if above_ma20 else 0.0
+    recent_gain_score = min(max(recent_gain / 0.1, 0.0), 1.0) * 0.2
+    volume_score = min(max(volume_ratio - 1.0, 0.0), 1.0) * 0.15
+    strong_bull_score = 0.1 if strong_bull else 0.0
+    score = (
+        strong_trend_score
+        + follow_trend_score
+        + above_ma20_score
+        + recent_gain_score
+        + volume_score
+        + strong_bull_score
+    )
+
     labels: List[str] = []
     if strong_trend:
         labels.append("5/10/20日均线多头")
     elif follow_trend:
         labels.append("价格保持多头态势")
-    if current["close"] > current["ma20"]:
+    if above_ma20:
         labels.append("站上20日均线")
     if current["close"] > prior["close"]:
         labels.append("连续上涨")
     if current["volume"] > avg_vol_5:
         labels.append("量能放大")
+
     return {
         "symbol": symbol,
         "close": float(current["close"]),
@@ -136,6 +148,18 @@ def calculate_kline_trend(symbol: str, lookback_days: int = 60) -> Optional[Dict
         "ma20": float(current["ma20"]),
         "ma60": float(current["ma60"]),
         "score": float(score),
+        "strong_trend": strong_trend,
+        "follow_trend": follow_trend,
+        "above_ma20": above_ma20,
+        "recent_gain": float(recent_gain),
+        "volume_ratio": float(volume_ratio),
+        "strong_bull": strong_bull,
+        "strong_trend_score": float(strong_trend_score),
+        "follow_trend_score": float(follow_trend_score),
+        "above_ma20_score": float(above_ma20_score),
+        "recent_gain_score": float(recent_gain_score),
+        "volume_score": float(volume_score),
+        "strong_bull_score": float(strong_bull_score),
         "trend_labels": labels,
         "dates": df["date"].tolist(),
     }
@@ -154,12 +178,35 @@ def classify_trend(score: float, hot: bool) -> str:
 def build_stock_score(
     row: pd.Series,
     hot_codes: Set[str],
-    history: Dict[str, object],
+    history: Optional[Dict[str, object]],
 ) -> Dict[str, object]:
     hot_signal = row["代码"] in hot_codes
     hot_score = 1.0 if hot_signal else 0.0
-    technical_score = history["score"] if history else 0.0
+    technical_score = 0.0
+    if history is not None:
+        score = history.get("score")
+        if isinstance(score, (int, float)):
+            technical_score = float(score)
     combined_score = min(1.0, technical_score * 0.8 + hot_score * 0.2)
+    trend_labels = []
+    if history:
+        labels = history.get("trend_labels")
+        if isinstance(labels, list):
+            trend_labels = [str(label) for label in labels if isinstance(label, str)]
+
+    strong_trend = bool(history.get("strong_trend")) if history else False
+    follow_trend = bool(history.get("follow_trend")) if history else False
+    above_ma20 = bool(history.get("above_ma20")) if history else False
+    strong_bull = bool(history.get("strong_bull")) if history else False
+    recent_gain = float(history.get("recent_gain", 0.0)) if history else 0.0
+    volume_ratio = float(history.get("volume_ratio", 0.0)) if history else 0.0
+    strong_trend_score = float(history.get("strong_trend_score", 0.0)) if history else 0.0
+    follow_trend_score = float(history.get("follow_trend_score", 0.0)) if history else 0.0
+    above_ma20_score = float(history.get("above_ma20_score", 0.0)) if history else 0.0
+    recent_gain_score = float(history.get("recent_gain_score", 0.0)) if history else 0.0
+    volume_score = float(history.get("volume_score", 0.0)) if history else 0.0
+    strong_bull_score = float(history.get("strong_bull_score", 0.0)) if history else 0.0
+
     return {
         "代码": row["代码"],
         "名称": row["名称"],
@@ -171,7 +218,20 @@ def build_stock_score(
         "消息评分": round(hot_score, 3),
         "综合评分": round(combined_score, 3),
         "趋势判断": classify_trend(combined_score, hot_signal),
-        "趋势标签": ";".join(history["trend_labels"]) if history else "",
+        "趋势标签": ";".join(trend_labels),
+        "5/10/20日均线多头": strong_trend,
+        "价格保持多头态势": follow_trend,
+        "站上20日均线": above_ma20,
+        "连续上涨": strong_bull,
+        "量能放大": volume_ratio > 1.0,
+        "近5日涨幅(%)": round(recent_gain * 100, 2),
+        "5日均量比": round(volume_ratio, 2),
+        "强势趋势得分": round(strong_trend_score, 3),
+        "跟随多头得分": round(follow_trend_score, 3),
+        "站上20日得分": round(above_ma20_score, 3),
+        "涨幅得分": round(recent_gain_score, 3),
+        "量能得分": round(volume_score, 3),
+        "牛熊转换得分": round(strong_bull_score, 3),
     }
 
 
@@ -221,19 +281,6 @@ def main() -> None:
         print("未选出符合条件的股票。")
     else:
         print(result.to_string(index=False))
-
-
-if __name__ == "__main__":
-    main()
-
-
-def main() -> None:
-    picks = select_stocks(top_n=30, universe_n=120)
-    if picks.empty:
-        print("未能获取选股结果，请检查网络或日期设置。")
-        return
-    print("已选出 A 股看涨候选股票：")
-    print(picks[["代码", "名称", "最新价", "涨跌幅", "成交额", "趋势判断", "技术评分", "消息评分", "趋势标签"]].to_string(index=False))
 
 
 if __name__ == "__main__":
