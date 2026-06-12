@@ -37,6 +37,17 @@ def safe_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").fillna(0.0)
 
 
+def to_float(value: object, default: float = 0.0) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
 def fetch_a_share_spot() -> pd.DataFrame:
     df = stock_zh_a_spot()
     df = df.copy()
@@ -198,14 +209,14 @@ def build_stock_score(
     follow_trend = bool(history.get("follow_trend")) if history else False
     above_ma20 = bool(history.get("above_ma20")) if history else False
     strong_bull = bool(history.get("strong_bull")) if history else False
-    recent_gain = float(history.get("recent_gain", 0.0)) if history else 0.0
-    volume_ratio = float(history.get("volume_ratio", 0.0)) if history else 0.0
-    strong_trend_score = float(history.get("strong_trend_score", 0.0)) if history else 0.0
-    follow_trend_score = float(history.get("follow_trend_score", 0.0)) if history else 0.0
-    above_ma20_score = float(history.get("above_ma20_score", 0.0)) if history else 0.0
-    recent_gain_score = float(history.get("recent_gain_score", 0.0)) if history else 0.0
-    volume_score = float(history.get("volume_score", 0.0)) if history else 0.0
-    strong_bull_score = float(history.get("strong_bull_score", 0.0)) if history else 0.0
+    recent_gain = to_float(history.get("recent_gain", 0.0)) if history else 0.0
+    volume_ratio = to_float(history.get("volume_ratio", 0.0)) if history else 0.0
+    strong_trend_score = to_float(history.get("strong_trend_score", 0.0)) if history else 0.0
+    follow_trend_score = to_float(history.get("follow_trend_score", 0.0)) if history else 0.0
+    above_ma20_score = to_float(history.get("above_ma20_score", 0.0)) if history else 0.0
+    recent_gain_score = to_float(history.get("recent_gain_score", 0.0)) if history else 0.0
+    volume_score = to_float(history.get("volume_score", 0.0)) if history else 0.0
+    strong_bull_score = to_float(history.get("strong_bull_score", 0.0)) if history else 0.0
 
     return {
         "代码": row["代码"],
